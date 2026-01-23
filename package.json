@@ -5,13 +5,14 @@
   "private": false,
   "type": "module",
   "bin": {
-    "g-search-mcp": "build/index.js"
+    "g-search-mcp": "build/index.js",
+    "g-search-cli": "build/cli.js"
   },
   "files": [
     "build"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build": "tsc && node -e \"['build/index.js', 'build/cli.js'].forEach(f => require('fs').chmodSync(f, '755'))\"",
     "prepare": "npm run build",
     "watch": "tsc --watch",
     "inspector": "npm run build && npx @modelcontextprotocol/inspector build/index.js --debug",
