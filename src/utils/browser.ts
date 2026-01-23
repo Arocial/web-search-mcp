@@ -52,32 +52,11 @@ export interface SavedState {
  * Get the host machine's actual configuration
  */
 export function getHostMachineConfig(userLocale?: string): FingerprintConfig {
-  const systemLocale = userLocale || process.env.LANG || "en-US";
-  const timezoneOffset = new Date().getTimezoneOffset();
-  let timezoneId = "America/New_York";
-
-  if (timezoneOffset <= -480 && timezoneOffset > -600) {
-    timezoneId = "Asia/Shanghai";
-  } else if (timezoneOffset <= -540) {
-    timezoneId = "Asia/Tokyo";
-  } else if (timezoneOffset <= -420 && timezoneOffset > -480) {
-    timezoneId = "Asia/Bangkok";
-  } else if (timezoneOffset <= 0 && timezoneOffset > -60) {
-    timezoneId = "Europe/London";
-  } else if (timezoneOffset <= 60 && timezoneOffset > 0) {
-    timezoneId = "Europe/Berlin";
-  } else if (timezoneOffset <= 300 && timezoneOffset > 240) {
-    timezoneId = "America/New_York";
-  }
-
-  const hour = new Date().getHours();
-  const colorScheme = hour >= 19 || hour < 7 ? ("dark" as const) : ("light" as const);
-
   return {
     deviceName: "Desktop Chrome",
-    locale: systemLocale,
-    timezoneId,
-    colorScheme,
+    locale: userLocale || process.env.LANG || "en-US",
+    timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    colorScheme: new Date().getHours() >= 19 || new Date().getHours() < 7 ? "dark" : "light",
     reducedMotion: "no-preference",
     forcedColors: "none",
   };
@@ -100,9 +79,12 @@ export async function launchBrowser(headless: boolean, timeout: number): Promise
  */
 export async function setupContext(
   browser: Browser,
-  options: BrowserContextOptions,
-  storageState?: string
-): Promise<BrowserContext> {
+  stateFile: string,
+): Promise<[BrowserContext, SavedState]> {
+
+  const { storageState, savedState } = loadSavedState(stateFile);
+  const options = resolveContextOptions(savedState);
+
   const context = await browser.newContext(
     storageState ? { ...options, storageState } : options
   );
@@ -130,7 +112,7 @@ export async function setupContext(
     }
   });
 
-  return context;
+  return [context, savedState];
 }
 
 /**
@@ -138,30 +120,33 @@ export async function setupContext(
  */
 export function resolveContextOptions(
   savedState: SavedState,
-  locale: string,
-  deviceName: string
 ): BrowserContextOptions {
-  let contextOptions: BrowserContextOptions = { ...devices[deviceName] };
+  const machineConfig = getHostMachineConfig();
+  const selectedDevice = savedState.fingerprint?.deviceName ||  machineConfig.deviceName;
 
-  if (savedState.fingerprint) {
-    contextOptions = { ...contextOptions, ...savedState.fingerprint };
-  } else {
-    const hostConfig = getHostMachineConfig(locale);
-    if (hostConfig.deviceName !== deviceName) {
-      contextOptions = { ...devices[hostConfig.deviceName] };
-    }
-    contextOptions = { ...contextOptions, ...hostConfig };
-    savedState.fingerprint = hostConfig;
-  }
-
-  return {
-    ...contextOptions,
+  const contextOptions: BrowserContextOptions = {
+    ...devices[selectedDevice],
+    ...machineConfig,
+    ...savedState.fingerprint,
     permissions: ["geolocation", "notifications"],
     acceptDownloads: true,
     isMobile: false,
     hasTouch: false,
     javaScriptEnabled: true,
   };
+
+  if (!savedState.fingerprint) {
+    savedState.fingerprint = {
+      deviceName: selectedDevice,
+      locale: contextOptions.locale!,
+      timezoneId: contextOptions.timezoneId!,
+      colorScheme: contextOptions.colorScheme as any,
+      reducedMotion: contextOptions.reducedMotion as any,
+      forcedColors: contextOptions.forcedColors as any,
+    };
+  }
+
+  return contextOptions;
 }
 
 /**
@@ -193,7 +178,7 @@ export async function saveBrowserState(
 ): Promise<void> {
   const fingerprintFile = stateFile.replace(".json", "-fingerprint.json");
   const stateDir = path.dirname(stateFile);
-  
+
   if (!fs.existsSync(stateDir)) {
     fs.mkdirSync(stateDir, { recursive: true });
   }

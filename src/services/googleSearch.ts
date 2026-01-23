@@ -1,4 +1,4 @@
-import { chromium, devices, BrowserContextOptions, Browser } from "playwright";
+import { chromium, devices, BrowserContextOptions, Browser, Page } from "playwright";
 import { SearchResponse, SearchResult, SearchOptions } from "../types/index.js";
 import { logger } from "../utils/logger.js";
 import * as fs from "fs";
@@ -31,26 +31,13 @@ export async function googleSearch(
     timeout = 60000,
     stateFile = "./browser-state.json",
     noSaveState = false,
-    locale = "en-US",
   } = options;
 
   let useHeadless = !options.debug;
-  const { storageState, savedState } = loadSavedState(stateFile);
 
-  const deviceList = ["Desktop Chrome", "Desktop Edge", "Desktop Firefox", "Desktop Safari"];
   const googleDomains = [
     "https://www.google.com",
-    "https://www.google.co.uk",
-    "https://www.google.ca",
-    "https://www.google.com.au",
   ];
-
-  const getDeviceName = (): string => {
-    if (savedState.fingerprint?.deviceName && devices[savedState.fingerprint.deviceName]) {
-      return savedState.fingerprint.deviceName;
-    }
-    return deviceList[Math.floor(Math.random() * deviceList.length)];
-  };
 
   const getRandomDelay = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 
@@ -66,36 +53,41 @@ export async function googleSearch(
       browser = await launchBrowser(headless, timeout);
     }
 
-    const deviceName = getDeviceName();
-    const contextOptions = resolveContextOptions(savedState, locale, deviceName);
-    const context = await setupContext(browser, contextOptions, storageState);
+    const [context, savedState] = await setupContext(browser, stateFile);
     const page = await setupPage(context);
-
-    try {
       let selectedDomain = savedState.googleDomain || googleDomains[Math.floor(Math.random() * googleDomains.length)];
       savedState.googleDomain = selectedDomain;
 
-      logger.info(`[GoogleSearch] Visiting ${selectedDomain}`);
-      const response = await page.goto(selectedDomain, { timeout, waitUntil: "networkidle" });
+    if (!noSaveState) {
+      await saveBrowserState(context, stateFile, savedState);
+    }
 
-      const captchaPatterns = ["google.com/sorry/index", "google.com/sorry", "recaptcha", "captcha", "unusual traffic"];
-      const isBlocked = () => captchaPatterns.some(p => page.url().includes(p) || (response && response.url().includes(p)));
+    const captchaPatterns = ["google.com/sorry"];
+    const isBlocked = (pg: Page) => captchaPatterns.some(pattern => pg.url().includes(pattern));
 
-      if (isBlocked()) {
+    const handleBlocked = async (): Promise<[boolean, SearchResponse | undefined]> => {
+      if (isBlocked(page)) {
         if (headless) {
           logger.warn("[GoogleSearch] CAPTCHA detected, restarting in non-headless mode...");
           await page.close();
           await context.close();
           if (!browserWasProvided) await browser.close();
-          return performSearch(false, browserWasProvided);
+          const response = await performSearch(false, browserWasProvided);
+          return [false, response];
         } else {
           logger.warn("[GoogleSearch] CAPTCHA detected, please solve it in the browser...");
-          await page.waitForNavigation({
-            timeout: timeout * 2,
-            url: (url) => captchaPatterns.every(p => !url.toString().includes(p)),
-          });
+          await page.waitForURL((url) => captchaPatterns.every(p => !url.toString().includes(p)), {timeout: 0});
         }
       }
+      return [true, undefined];
+    };
+
+    try {
+      logger.info(`[GoogleSearch] Visiting ${selectedDomain}`);
+      await page.goto(selectedDomain, { timeout, waitUntil: "domcontentloaded" });
+
+      const [shouldContinue1, response1] = await handleBlocked();
+      if (!shouldContinue1) return response1!;
 
       logger.info(`[GoogleSearch] Searching for: ${query}`);
       const searchInputSelectors = ["textarea[name='q']", "input[name='q']", "textarea[title='Search']", "textarea"];
@@ -112,24 +104,22 @@ export async function googleSearch(
       await page.waitForTimeout(getRandomDelay(100, 300));
       await page.keyboard.press("Enter");
 
-      await page.waitForLoadState("networkidle", { timeout });
+      const validPatterns = ['/search?q=']
+      const nextPatterns = validPatterns.concat(captchaPatterns)
 
-      if (isBlocked()) {
-        if (headless) {
-          await page.close();
-          await context.close();
-          if (!browserWasProvided) await browser.close();
-          return performSearch(false, browserWasProvided);
-        }
-        await page.waitForNavigation({ timeout: timeout * 2, url: (url) => captchaPatterns.every(p => !url.toString().includes(p)) });
-        await page.waitForLoadState("networkidle", { timeout });
-      }
+      logger.info(`[GoogleSearch] Waiting for search result`);
+      await page.waitForURL((url) => nextPatterns.some(p => url.toString().includes(p)),
+        { timeout, waitUntil: "domcontentloaded" });
+      logger.info(`[GoogleSearch] Loaded: ${page.url()}`);
+
+      const [shouldContinue2, response2] = await handleBlocked();
+      if (!shouldContinue2) return response2!;
 
       const searchResultSelectors = ["#search", "#rso", ".g", "div[role='main']"];
       let resultsFound = false;
       for (const selector of searchResultSelectors) {
         try {
-          await page.waitForSelector(selector, { timeout: timeout / 2 });
+          await page.waitForSelector(selector, { timeout });
           resultsFound = true;
           break;
         } catch (e) {}
@@ -173,7 +163,6 @@ export async function googleSearch(
       if (!noSaveState) {
         await saveBrowserState(context, stateFile, savedState);
       }
-
       if (!browserWasProvided && !options.debug) await browser.close();
 
       return { query, results };
@@ -204,7 +193,6 @@ export async function multiGoogleSearch(
       queries.map((query, index) => {
         const searchOptions = {
           ...options,
-          stateFile: options.stateFile ? `${options.stateFile}-${index}` : `./browser-state-${index}.json`,
         };
         return googleSearch(query, searchOptions, browser);
       })
