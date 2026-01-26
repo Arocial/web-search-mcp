@@ -8,9 +8,15 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "./server.js";
 import { logger } from "./utils/logger.js";
+import { startHttpServer } from "./http.js";
 
-// Parse command line arguments, check for debug flag
+// Parse command line arguments
 export const isDebugMode = process.argv.includes("--debug");
+const isHttpMode = process.argv.includes("--http");
+const portArg = process.argv.find(arg => arg.startsWith("--port="));
+const port = portArg ? parseInt(portArg.split("=")[1], 10) : 3333;
+const hostArg = process.argv.find(arg => arg.startsWith("--host="));
+const host = hostArg ? hostArg.split("=")[1] : "localhost";
 
 /**
  * Start the server
@@ -22,10 +28,14 @@ async function main() {
     logger.debug("[Setup] Debug mode enabled, Chrome browser window will be visible");
   }
 
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  logger.info("[Setup] Server started");
+  if (isHttpMode) {
+      startHttpServer(port, host);
+  } else {
+    const server = createServer();
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    logger.info("[Setup] Stdio server started");
+  }
 }
 
 main().catch((error) => {

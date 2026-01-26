@@ -33,12 +33,12 @@ First time setup - install the required browser by running the following command
 npx playwright install chromium
 ```
 
-### Debug Mode
+### HTTP Mode
 
-Use the `--debug` option to run in debug mode (showing browser window):
+The server also supports Streamable HTTP mode, which is useful for remote deployments or stateless environments:
 
 ```bash
-npx -y g-search-mcp --debug
+npx -y g-search-mcp --http --port=3333 --host 0.0.0.0
 ```
 
 ## Configure MCP
