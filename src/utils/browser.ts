@@ -158,6 +158,7 @@ export function loadSavedState(stateFile: string): { storageState?: string; save
   let savedState: SavedState = {};
 
   if (storageState && fs.existsSync(fingerprintFile)) {
+    logger.info("[Browser] Loading saved state");
     try {
       savedState = JSON.parse(fs.readFileSync(fingerprintFile, "utf8"));
     } catch (e) {

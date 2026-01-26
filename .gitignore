@@ -2,6 +2,7 @@ node_modules/
 build/
 *.log
 .env*
+state/
 browser-state.json
 browser-state-fingerprint.json
 .history/

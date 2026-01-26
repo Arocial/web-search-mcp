@@ -29,7 +29,7 @@ export async function googleSearch(
   const {
     limit = 10,
     timeout = 60000,
-    stateFile = "./browser-state.json",
+    stateFile = "./state/browser-state.json",
     noSaveState = false,
   } = options;
 
