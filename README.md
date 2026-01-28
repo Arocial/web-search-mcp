@@ -41,6 +41,18 @@ The server also supports Streamable HTTP mode, which is useful for remote deploy
 npx -y g-search-mcp --http --port=3333 --host 0.0.0.0
 ```
 
+### CLI Usage
+
+You can also use the CLI to perform searches directly from your terminal:
+
+```bash
+# Using npx
+npx -y g-search-mcp-cli "query 1" "query 2" --log
+
+# If running from source
+node build/cli.js "query 1" "query 2" --log
+```
+
 ## Configure MCP
 
 Configure this MCP server in Claude Desktop:
@@ -180,6 +192,18 @@ npm run install-browser
 npm run build
 ```
 
+### Docker Usage
+
+You can run the server using Docker. The image includes all necessary Playwright dependencies.
+
+```bash
+# Build the image
+npm run build; docker build -t web-search-mcp .
+
+# Run the HTTP server (default)
+docker run -p 3333:3333  -v /path/to/web-search-state:/app/state web-search-mcp
+```
+
 ## Development
 
 ### Auto Rebuild (Development Mode)
@@ -193,10 +217,6 @@ npm run watch
 ```bash
 npm run inspector
 ```
-
-## Related Projects
-
-- [fetcher-mcp](https://github.com/jae-jae/fetcher-mcp): A powerful MCP server for fetching web page content using Playwright headless browser. Features intelligent content extraction, parallel processing, resource optimization, and more, making it an ideal tool for web content scraping.
 
 ## License
 
